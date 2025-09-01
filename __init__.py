@@ -1,13 +1,18 @@
 import unrealsdk
-from unrealsdk import *
+from unrealsdk import find_object
 import sys
 import random
 import json
 import os
 import asyncio
+import time
 from pathlib import Path
 from ..ModManager import BL2MOD, RegisterMod
 from Mods.ModMenu import Game, Hook
+from mods_base import command, build_mod
+import command_extensions
+
+SKILL_POINTS = find_object("AttributeInitializationDefinition", "GD_Globals.Skills.INI_SkillPointsPerLevelUp")
 
 class Archipelago(BL2MOD):
     Name: str = "Archipelago"
@@ -16,6 +21,7 @@ class Archipelago(BL2MOD):
     Author: str = "Metrax"
     SupportedGames = Game.BL2
     LocalModDir: str = os.path.dirname(os.path.realpath(__file__))
+    _last_known_level = 0
 
     def __init__(self):
         if "localappdata" in os.environ:
@@ -26,8 +32,24 @@ class Archipelago(BL2MOD):
         if not os.path.exists(self.game_communication_path):
             os.makedirs(self.game_communication_path)
             
+        self.savefile_bindings_path = os.path.join(self.game_communication_path, "savefile_bindings.json")
+        if not os.path.exists(self.savefile_bindings_path):
+            unrealsdk.Log(f"[Archipelago] savefile_bindings.json not found. Please start the archipelago client first.")
+            return
+
+        self.reset()
+
+    def reset(self):
         self.player_loaded = False
+        self.config = False
+        self.connected = False
         self.completed_checks = set()
+
+    def get_seed_path(self):
+        if not self.seed:
+            return None
+
+        return os.path.join(self.game_communication_path, str(self.seed))
 
     def is_player_in_game(self):
         try:
@@ -60,7 +82,7 @@ class Archipelago(BL2MOD):
             "timestamp": time.time()
         }
         
-        check_file = os.path.join(self.game_communication_path, f"check_{check_id}.json")
+        check_file = os.path.join(self.get_seed_path(), f"check_{check_id}.json")
         with open(check_file, 'w') as f:
             json.dump(check_data, f)
             
@@ -77,21 +99,37 @@ class Archipelago(BL2MOD):
 
     @Hook("WillowGame.WillowPlayerController.PlayerTick")
     def PlayerTick(self, caller: unrealsdk.UObject, function: unrealsdk.UFunction, params: unrealsdk.FStruct) -> bool:
-        if self.is_player_in_game():
-            # Player is loaded and in-game, safe to do checks
-            pass
+        if self.is_player_in_game() and self.connected and self.config:
+            return True
+
         return True
 
     @Hook("WillowGame.WillowPlayerController.WillowClientDisableLoadingMovie")
     def on_loading_complete(self, caller, function, params):
         self.player_loaded = True
         unrealsdk.Log(f"[Archipelago] Player Loaded: {self.player_loaded}")
+
+        if not self.connected:
+            self.connect_to_archipelago()
+
+        if not self.config:
+            self.load_config()
+
+        self.disable_skillpoints_on_levelup()
+
         return True
+
+    @Hook("WillowGame.WillowPlayerController:LoadTheBank")
+    def check_level_change(self, caller, function, params):
+        current_level = caller.PlayerReplicationInfo.ExpLevel
+        if current_level > self._last_known_level:
+            unrealsdk.Log(f"[Archipelago] Player Level Up: {self._last_known_level} -> {current_level}")
+            self._last_known_level = current_level
 
     @Hook("WillowGame.WillowPlayerController.CompleteQuitToMenu")
     def on_disconnect(self, caller, function, params):
-        self.player_loaded = False
-        unrealsdk.Log(f"[Archipelago] Player Loaded: {self.player_loaded}")
+        self.reset()
+        unrealsdk.Log(f"[Archipelago] Player disconnected: {self.player_loaded}")
         return True
 
     @Hook("WillowGame.WillowPlayerPawn.PickupInventory")
@@ -121,9 +159,87 @@ class Archipelago(BL2MOD):
         if caller.IsChampion() or caller.IsBoss():
             name, *_ = caller.GetTargetName()
 
+            formatted = name.replace(" ", "-").lower()
+
             unrealsdk.Log(f"[Archipelago] on_enemy_died: {name}")
+            self.send_check(f"kill_{formatted}", f"Killed {name}")
             
         return True
+
+    def disable_skillpoints_on_levelup(self):
+        unrealsdk.Log(f"[Archipelago] Disabling vanilla skillpoints {SKILL_POINTS}!")
+        expression_list = SKILL_POINTS.ConditionalInitialization.ConditionalExpressionList
+        if expression_list:
+            expression = expression_list[0].Expressions
+            if expression:
+                expression[0].ConstantOperand2 = 999
+
+    def connect_to_archipelago(self):
+        savefile_bindings = []
+        try:
+            with open(self.savefile_bindings_path, 'r') as f:
+                savefile_bindings = json.load(f)
+        except OSError:
+            unrealsdk.Log(f"[Archipelago] Could not read file: {self.savefile_bindings_path}")
+            return
+
+        if not self.is_connected_to_seed(savefile_bindings):
+            unrealsdk.Log(f"[Archipelago] Savefile not connected to any seed. Connecting..")
+            self.establish_new_connection(savefile_bindings)
+
+        unrealsdk.Log(f"[Archipelago] Savefile connected.")
+
+        self.connected = True
+
+    def is_connected_to_seed(self, savefile_bindings):
+        savefile_id = self.get_savefile_id()
+
+        for b in savefile_bindings:
+            if b["save_file"] == savefile_id:
+                self.seed = b["seed"]
+                return True
+
+        return False    
+
+    def establish_new_connection(self, savefile_bindings):
+        binding = -1
+        for i, b in enumerate(savefile_bindings):
+            if b["seed"] and not b["save_file"]:
+                binding = i
+                break
+
+        if binding < 0:
+            unrealsdk.Log(f"[Archipelago] Could not find empty seed.")
+            return
+        else:
+            savefile_bindings[binding]["save_file"] = self.get_savefile_id()
+
+        try:
+            with open(self.savefile_bindings_path, 'w') as f:
+                json.dump(savefile_bindings, f)
+            unrealsdk.Log(f"[Archipelago] Connected seed {savefile_bindings[binding]["seed"]} to savefile {savefile_bindings[binding]["save_file"]}")
+        except OSError:
+            logger.warning(f"Could not write file: {self.savefile_bindings_path}")
+
+    def get_savefile_id(self):
+        pc = unrealsdk.GetEngine().GamePlayers[0].Actor
+        if pc == None:
+            return None
+        
+        save_game = pc.GetCachedSaveGame()
+
+        if not save_game:
+            return None
+        
+        return save_game.SaveGameId
+
+    def load_config(self):
+        config_path = os.path.join(self.get_seed_path(), "config.json")
+        try:
+            with open(config_path, 'r') as f:
+                self.config = json.load(f)
+        except OSError:
+            unrealsdk.Log(f"[Archipelago] Could not read file: {config_path}")
 
 def get_player_controller():
     """
