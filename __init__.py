@@ -11,6 +11,7 @@ from ..ModManager import BL2MOD, RegisterMod
 from Mods.ModMenu import Game, Hook
 from mods_base import command, build_mod
 import command_extensions
+from .Locations import id_lookup_table, boss_lookup_table
 
 SKILL_POINTS = find_object("AttributeInitializationDefinition", "GD_Globals.Skills.INI_SkillPointsPerLevelUp")
 
@@ -30,7 +31,7 @@ class Archipelago(BL2MOD):
             self.game_communication_path = os.path.expandvars(r"$HOME/BL2Archipelago")
         
         if not os.path.exists(self.game_communication_path):
-            os.makedirs(self.game_communication_path)
+            unrealsdk.Log(f"[Archipelago] Path {self.game_communication_path} does not exist. Please start the archipelago client first.")
             
         self.savefile_bindings_path = os.path.join(self.game_communication_path, "savefile_bindings.json")
         if not os.path.exists(self.savefile_bindings_path):
@@ -82,7 +83,7 @@ class Archipelago(BL2MOD):
             "timestamp": time.time()
         }
         
-        check_file = os.path.join(self.get_seed_path(), f"check_{check_id}.json")
+        check_file = os.path.join(self.get_seed_path(), f"check{check_id}.json")
         with open(check_file, 'w') as f:
             json.dump(check_data, f)
             
@@ -159,10 +160,14 @@ class Archipelago(BL2MOD):
         if caller.IsChampion() or caller.IsBoss():
             name, *_ = caller.GetTargetName()
 
-            formatted = name.replace(" ", "-").lower()
+            if name not in boss_lookup_table:
+                return False
+
+            check_name = f"Kill {name}"
+            check_id = id_lookup_table[check_name]
 
             unrealsdk.Log(f"[Archipelago] on_enemy_died: {name}")
-            self.send_check(f"kill_{formatted}", f"Killed {name}")
+            self.send_check(check_id, check_name)
             
         return True
 
@@ -217,6 +222,8 @@ class Archipelago(BL2MOD):
         try:
             with open(self.savefile_bindings_path, 'w') as f:
                 json.dump(savefile_bindings, f)
+
+            self.seed = savefile_bindings[binding]["seed"]
             unrealsdk.Log(f"[Archipelago] Connected seed {savefile_bindings[binding]["seed"]} to savefile {savefile_bindings[binding]["save_file"]}")
         except OSError:
             logger.warning(f"Could not write file: {self.savefile_bindings_path}")
