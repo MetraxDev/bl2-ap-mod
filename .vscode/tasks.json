@@ -1,0 +1,37 @@
+{
+    "version": "2.0.0",
+    "command": "zsh",
+    "isShellCommand": true,
+    "showOutput": "always",
+    "args": [
+        "-c"
+    ],
+    "tasks": [
+        {
+            "label": "Build sdkmod",
+            "args": [
+                "mkdir -p ${workspaceFolder}/out && rm -rf ${workspaceFolder}/out/bl2-ap-mod.sdkmod && cd .. && zip -r ${workspaceFolder}/out/bl2-ap-mod.sdkmod bl2-ap-mod"
+            ]
+        },
+        {
+            "label": "Deploy sdkmod",
+            "args": [
+                "rm -f \"/home/marco/.local/share/Steam/steamapps/common/Borderlands 2/sdk_mods/bl2-ap-mod.sdkmod\" && cp ${workspaceFolder}/out/bl2-ap-mod.sdkmod \"/home/marco/.local/share/Steam/steamapps/common/Borderlands 2/sdk_mods\""
+            ]
+        },
+        {
+            "label": "Build & Deploy",
+            "dependsOrder": "sequence",
+            "dependsOn": [
+                "Build sdkmod",
+                "Deploy sdkmod"
+            ]
+        },
+        {
+            "label": "Run Borderlands 2",
+            "args": [
+                "steam steam://run/49520"
+            ]
+        },
+    ]
+}

@@ -1,0 +1,14 @@
+[project]
+name = "Archipelago"
+version = "0.0"
+authors = [{ name = "Metrax" }]
+description = """\
+Archipelago!
+"""
+dependencies = [
+]
+
+[tool.sdkmod]
+name = "Archipelago"
+license = {name = "GNU General Public License v3.0", url = "https://choosealicense.com/licenses/gpl-3.0/" }
+download = "https://github.com/MetraxDev/bl2-ap-mod"
