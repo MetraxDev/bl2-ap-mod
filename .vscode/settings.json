@@ -1,3 +1,6 @@
 {
-    "python.analysis.extraPaths": "/home/marco/.local/share/Steam/steamapps/common/Borderlands 2/sdk_mods/"
+    "python.analysis.extraPaths": [
+        "./bases/legacy_compat",
+        "./bases"
+    ]
 }

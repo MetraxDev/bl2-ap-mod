@@ -1,26 +1,24 @@
-import sys
-import random
 import json
 import os
-import asyncio
 import time
-from pathlib import Path
 
-import unrealsdk
+from items import cmd_ap_get_def_from_pool, cmd_ap_give_weapon, cmd_ap_give_weapon_from_pool, cmd_ap_spawn_weapon, cmd_spawn_loot
+
+import items
+from skills import cmd_ap_export_skills, cmd_ap_get_skills, cmd_ap_give_skillpoints, cmd_ap_random_skill, cmd_ap_reset_skilltree, cmd_ap_set_skill, cmd_ap_set_skillpoints, cmd_ap_take_skillpoints, cmd_ap_unlock_all_skills, cmd_ap_unlock_skilltree
+import skills
 from unrealsdk import find_object, logging
+
 from mods_base import (
     ENGINE,
-    command, 
     build_mod, 
-    hook, Mod, 
-    register_mod, 
-    Game, 
+    hook, 
     CoopSupport,
-    get_pc
+    get_pc,
 )
 from ui_utils import show_hud_message
 
-from .Locations import id_lookup_table, boss_lookup_table
+from .shared.bl2_data import get_bosses_only, get_regions_only, find_unlock_by_id
 
 SKILL_POINTS = find_object("AttributeInitializationDefinition", "GD_Globals.Skills.INI_SkillPointsPerLevelUp")
 
@@ -100,32 +98,96 @@ def send_check(check_id, check_name):
         "name": check_name,
         "timestamp": time.time()
     }
+
+    logging.info(f"[Archipelago] send_check seed path {get_seed_path()}")
     
     check_file = os.path.join(get_seed_path(), f"check{check_id}.json")
     with open(check_file, 'w') as f:
         json.dump(check_data, f)
         
     completed_checks.add(check_id)
-    logging.info(f"[Archipelago] Check completed: {check_name}")
+    logging.info(f"[Archipelago] Check {check_id} -> {check_name}")
 
-def enable():
+def on_enable():
     logging.info(f"[Archipelago] Hello!")
     show_hud_message("Archipelago", "Hello!")
     init()
 
-def disable():
+def on_disable():
     logging.info(f"[Archipelago] Bye bye!")
     show_hud_message("Archipelago", "Bye bye!")
 
+ap_check_count=0
+ap_check_max=100
+
 @hook("WillowGame.WillowPlayerController:PlayerTick")
-def PlayerTick(caller, function, params, method) -> bool:
+def on_player_tick(caller, function, params, method) -> bool:
+    global ap_check_count
+
     if is_player_in_game() and connected and config:
+        ap_check_count = ap_check_count + 1
+
+        if ap_check_count > ap_check_max:
+            # check_for_unlocks()
+            # on ap get skillpoint: GeneralSkillPoints + 1
+            # get_pc().PlayerReplicationInfo.GeneralSkillPoints = 0
+            ap_check_count=0
+
         return True
+
+    return True
+
+def check_for_unlocks():
+    hud_message = ""
+    try:
+        for root, dirs, files in os.walk(get_seed_path()):
+            for file in files:
+                if file.startswith("AP"):
+                    json = convert_json_to_map(os.path.join(root, file))
+                    player = json["player"]
+                    item = find_unlock_by_id(json["item_id"])
+                    logging.info(f"[Archipelago] Player {player} sent {item["name"]}")
+                    hud_message += f"Player {player} sent {item["name"]}\n"
+                    handle_unlock(item)
+
+    except OSError:
+        # Directory access error, continue
+        pass
+
+    if hud_message:
+        show_hud_message("Archipelago", hud_message)
+
+def handle_unlock(item):
+    match item["name"]:
+        case "Weapon" | "Artifact" | "Classmod":
+            pass
+            # spawn_item()
+
+def convert_json_to_map(filepath):
+    jsonmap = {}
+    try:
+        with open(filepath, 'r') as f:
+            jsonmap = json.load(f)
+    except OSError:
+        logger.warning(f"Could not read file: {filepath}")
+    
+    return jsonmap
+
+@hook("WillowGame.WillowPlayerController:SpawningProcessComplete")
+def on_spawning_process_complete(obj, args, ret, HookedMethod):
+    logging.info(f"[Archipelago] {HookedMethod} has been hooked")
+
+# @hook("WillowGame.WillowPlayerController:WillowClientDisableLoadingMovie")
+@hook("WillowGame.WillowPlayerController:SpawningProcessComplete")
+def on_loading_complete(caller, function, params, method):
+
+    disable_skillpoints_on_levelup()
 
     return True
 
 @hook("WillowGame.WillowPlayerController:WillowClientDisableLoadingMovie")
 def on_loading_complete(caller, function, params, method):
+
     global player_loaded
 
     player_loaded = True
@@ -137,7 +199,17 @@ def on_loading_complete(caller, function, params, method):
     if not config:
         load_config()
 
-    disable_skillpoints_on_levelup()
+    internal_name = ENGINE.GetCurrentWorldInfo().GetMapName()
+    area_name = get_pc().GetWillowGlobals().GetLevelDependencyList().GetFriendlyLevelNameFromMapName(internal_name)
+
+    if area_name not in get_regions_only().keys():
+        return False
+
+    loc = get_regions_only()[area_name]
+
+    check_name = f"{loc["action"]} {loc["name"]}"
+
+    send_check(loc["full_id"], check_name)
 
     return True
 
@@ -182,20 +254,16 @@ def on_enemy_died(caller, function, params, method):
     if caller.IsChampion() or caller.IsBoss():
         *_, name = caller.GetTargetName("")
 
-        if name not in boss_lookup_table:
+        if name not in get_bosses_only().keys():
             return False
 
-        check_name = f"Kill {name}"
-        check_id = id_lookup_table[check_name]
+        loc = get_bosses_only()[name]
 
-        logging.info(f"[Archipelago] on_enemy_died: {name}")
-        send_check(check_id, check_name)
+        check_name = f"{loc["action"]} {loc["name"]}"
+
+        send_check(loc["full_id"], check_name)
         
     return True
-
-@hook("WillowGame.WillowPlayerController:SpawningProcessComplete")
-def on_spawning_process_complete(obj, args, ret, HookedMethod):
-    logging.info(f"[Archipelago] {HookedMethod} has been hooked")
 
 def disable_skillpoints_on_levelup():
     logging.info(f"[Archipelago] Disabling vanilla skillpoints {SKILL_POINTS}!")
@@ -206,6 +274,8 @@ def disable_skillpoints_on_levelup():
             expression[0].ConstantOperand2 = 999
 
 def connect_to_archipelago():
+    global connected
+
     savefile_bindings = []
     try:
         with open(savefile_bindings_path, 'r') as f:
@@ -271,6 +341,8 @@ def get_savefile_id():
     return save_game.SaveGameId
 
 def load_config():
+    global config
+
     config_path = os.path.join(get_seed_path(), "config.json")
     try:
         with open(config_path, 'r') as f:
@@ -278,22 +350,16 @@ def load_config():
     except OSError:
         logging.info(f"[Archipelago] Could not read file: {config_path}")
 
-def get_player_controller():
-    """
-    Get the current WillowPlayerController Object.
-    :return: WillowPlayerController
-    """
-    return get_pc()
-
-def get_world_info():
-    return ENGINE.GetCurrentWorldInfo()
-
 build_mod(
     coop_support=CoopSupport.Incompatible,
-    on_enable=enable,
-    on_disable=disable,
+    on_enable=on_enable,
+    on_disable=on_disable,
+    commands=[
+        *items.commands,
+        *skills.commands
+    ],
     hooks=[
-        PlayerTick,
+        on_player_tick,
         on_loading_complete,
         check_level_change,
         on_disconnect,
@@ -303,5 +369,3 @@ build_mod(
         on_spawning_process_complete
     ]
 )
-# register_mod(mod)
-# RegisterMod(instance)
