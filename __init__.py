@@ -2,6 +2,7 @@ import json
 import os
 import time
 
+import fasttravels
 from items import cmd_ap_get_def_from_pool, cmd_ap_give_weapon, cmd_ap_give_weapon_from_pool, cmd_ap_spawn_weapon, cmd_spawn_loot
 
 import items
@@ -356,7 +357,8 @@ build_mod(
     on_disable=on_disable,
     commands=[
         *items.commands,
-        *skills.commands
+        *skills.commands,
+        *fasttravels.commands,
     ],
     hooks=[
         on_player_tick,

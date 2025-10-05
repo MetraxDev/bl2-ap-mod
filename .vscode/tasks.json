@@ -23,13 +23,14 @@
             "dependsOn": [
                 "Build sdkmod",
                 "Deploy sdkmod"
-            ]
+            ],
+            "problemMatcher": []
         },
         {
             "label": "Run Borderlands 2",
             "args": [
                 "steam steam://run/49520"
             ]
-        },
+        }
     ]
 }
