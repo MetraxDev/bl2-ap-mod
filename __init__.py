@@ -368,6 +368,7 @@ build_mod(
         on_pickup_inventory,
         on_mission_status_change,
         on_enemy_died,
-        on_spawning_process_complete
+        on_spawning_process_complete,
+        *fasttravels.hooks
     ]
 )
