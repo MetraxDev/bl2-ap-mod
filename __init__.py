@@ -6,6 +6,7 @@ import fasttravels
 from items import cmd_ap_get_def_from_pool, cmd_ap_give_weapon, cmd_ap_give_weapon_from_pool, cmd_ap_spawn_weapon, cmd_spawn_loot
 
 import items
+import quests
 from skills import cmd_ap_export_skills, cmd_ap_get_skills, cmd_ap_give_skillpoints, cmd_ap_random_skill, cmd_ap_reset_skilltree, cmd_ap_set_skill, cmd_ap_set_skillpoints, cmd_ap_take_skillpoints, cmd_ap_unlock_all_skills, cmd_ap_unlock_skilltree
 import skills
 from unrealsdk import find_object, logging
@@ -360,6 +361,7 @@ build_mod(
         *items.commands,
         *skills.commands,
         *fasttravels.commands,
+        *quests.commands,
     ],
     hooks=[
         on_player_tick,
@@ -372,5 +374,6 @@ build_mod(
         on_spawning_process_complete,
         *fasttravels.hooks,
         *vaultsymbols.hooks,
+        *quests.hooks,
     ]
 )
