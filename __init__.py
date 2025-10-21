@@ -18,6 +18,7 @@ from mods_base import (
     get_pc,
 )
 from ui_utils import show_hud_message
+import vaultsymbols
 
 from .shared.bl2_data import get_bosses_only, get_regions_only, find_unlock_by_id
 
@@ -369,6 +370,7 @@ build_mod(
         on_mission_status_change,
         on_enemy_died,
         on_spawning_process_complete,
-        *fasttravels.hooks
+        *fasttravels.hooks,
+        *vaultsymbols.hooks,
     ]
 )
