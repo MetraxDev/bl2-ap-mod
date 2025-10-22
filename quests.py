@@ -87,9 +87,18 @@ def cmd_ap_get_plot_missions(args: Namespace) -> None:
 def cmd_ap_setup_quests(args: Namespace) -> None:
     logging.info("Setting up quests for Archipelago integration.")
     mission_tracker = get_pc().WorldInfo.GRI.MissionTracker
+    for directors in mission_tracker.MissionDirectors:
+        for directive in directors.MissionDirectives.MissionDirectives:
+            directive.bBeginsMission = False
 
     for mission in mission_tracker.MissionList:
-            mission.MissionDef.MissionGiver = ""
+        mission.MissionDef.MissionGiver = "Archipelago"
+        mission.MissionDef.DialogTalker = None
+
+    for mdd in find_all("MissionDirectivesDefinition"):
+        for directive in mdd.MissionDirectives:
+            if directive.MissionDefinition:
+                logging.info(f"MDD: {directive.MissionDefinition.MissionName} by {directive.MissionDefinition.MissionGiver} turned in at {directive.MissionDefinition.MissionTurnInLocation}")
 
 commands = [
     cmd_ap_activate_all_quests,
